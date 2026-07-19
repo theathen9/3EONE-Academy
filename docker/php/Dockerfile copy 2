@@ -1,0 +1,95 @@
+# ============================================================
+# Stage 1: Composer Dependencies
+# ============================================================
+FROM composer:2 AS vendor
+
+WORKDIR /app
+
+COPY composer.json composer.lock ./
+
+RUN composer install \
+    --no-dev \
+    --prefer-dist \
+    --optimize-autoloader \
+    --no-interaction \
+    --no-progress \
+    --no-scripts
+
+COPY . .
+
+
+# ============================================================
+# Stage 2: Production PHP
+# ============================================================
+FROM php:8.5-fpm
+
+# Install system packages
+RUN apt-get update && apt-get install -y \
+    git \
+    unzip \
+    zip \
+    curl \
+    supervisor \
+    libpq-dev \
+    libzip-dev \
+    libicu-dev \
+    libonig-dev \
+    libxml2-dev \
+    libpng-dev \
+    libjpeg62-turbo-dev \
+    libfreetype6-dev \
+    libwebp-dev \
+    libxpm-dev \
+    libgmp-dev \
+    libldap2-dev \
+    libxslt1-dev \
+    $PHPIZE_DEPS \
+    && rm -rf /var/lib/apt/lists/*
+
+
+# Configure GD
+RUN docker-php-ext-configure gd \
+    --with-freetype \
+    --with-jpeg \
+    --with-webp
+
+
+# Install PHP Extensions
+RUN docker-php-ext-install -j$(nproc) \
+    bcmath \
+    exif \
+    gd \
+    intl \
+    opcache \
+    pcntl \
+    pdo_pgsql \
+    pgsql \
+    zip
+
+
+# Install Redis extension
+RUN pecl install redis \
+    && docker-php-ext-enable redis
+
+
+WORKDIR /var/www/html
+
+
+# Copy application
+COPY . .
+
+
+# Copy vendor from composer stage
+COPY --from=vendor /app/vendor ./vendor
+
+
+# Permissions
+RUN chown -R www-data:www-data \
+    storage \
+    bootstrap/cache
+
+
+EXPOSE 9000
+
+
+CMD ["php-fpm"]
